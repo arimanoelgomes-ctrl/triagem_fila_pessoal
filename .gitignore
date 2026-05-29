@@ -1,0 +1,46 @@
+# Arquivos temporários e de execução
+*.log
+*.tmp
+*.bak
+
+# IMPORTANTE: a pasta logs/ é versionada (trilha de auditoria da triagem).
+# Apenas arquivos *.log soltos (não dentro de logs/) são ignorados.
+!logs/**
+
+# Diretórios de cache e temporários
+.cache/
+tmp/
+temp/
+
+# Sessões/credenciais (nunca commitar)
+.env
+.env.*
+# Exceção: o template .env.example DEVE ser versionado
+!.env.example
+!**/.env.example
+*.pem
+*.key
+credentials.json
+secrets.json
+
+# Saídas intermediárias da IA
+outputs/
+runs/
+
+# Sistema operacional
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Python (caso venha a ter scripts auxiliares)
+__pycache__/
+*.pyc
+*.pyo
+venv/
+.venv/
