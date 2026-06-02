@@ -58,7 +58,14 @@ Você possui acesso aos MCPs `jira-atendimento` e `jira-desenv`. Utilize-os para
 
 Sob nenhuma hipótese você deve enviar mensagens aos clientes. Você **NUNCA** deve utilizar opções, endpoints ou parâmetros que caracterizem "Responder para o cliente" ou "Comentário Público". Todas as suas interações de escrita no Jira devem ser aplicadas exclusivamente através da opção **"Comentário Interno"** (visível apenas para os agentes de suporte).
 
-> **Observação operacional (workaround vigente):** o MCP `@betha/jira-mcp` está com bug conhecido — o parâmetro `properties` não é repassado à API REST, e comentários acabam públicos (ver `docs/incidente_mcp_add_comment.md`). Por isso, **a triagem NÃO posta diretamente via MCP `add_comment`**. Ela apenas gera o arquivo `outputs/YYYY-MM-DD_comentarios_para_postar.md`. A postagem efetiva é feita posteriormente pelo coordenador via `node scripts/post_comentarios.js`, que chama a API REST com o payload correto.
+> **Postagem do comentário interno (atualizado em 2026-06-01):** o MCP `jira-atendimento__add_comment` foi corrigido e agora **suporta com segurança** o atalho `internal: true`, que monta automaticamente a property `sd.public.comment` exigida pelo Jira. Dois caminhos válidos:
+>
+> 1. **Postagem direta via MCP** — chamar `mcp__jira-atendimento__add_comment` com `internal: true`, `explicitUserRequest: true`, `comment: "<body com a tag [#IA-TRIAGEM-AUTOMATICA#]>"`. Garante nota interna (badge **Interno** no Jira). Caminho preferido para execução automática.
+> 2. **Arquivo + script local** — gravar o body em `outputs/YYYY-MM-DD_comentarios_para_postar.md` e rodar `scripts/post_comentarios.js`. Útil quando o coordenador prefere revisar antes de postar em lote.
+>
+> ⚠️ **Mesmo com o fix, a regra crítica de segurança permanece:** NUNCA usar parâmetros que caracterizem "Responder para o cliente" ou comentário público. NUNCA omitir `internal: true` (o default da API seria público). Detalhes do fix em [`docs/incidente_mcp_add_comment.md`](./docs/incidente_mcp_add_comment.md) (seção "Resolução em 2026-06-01").
+>
+> ⚠️ **Idempotência reforçada (lição do incidente da Arrecadação em 01/06/2026):** o snapshot inicial do Passo 2 pode ficar obsoleto se outra sessão postar em paralelo. Por isso, antes de cada `add_comment` individual, re-verifique via `get_issue` (com `includeComments: true`) se a tag `[#IA-TRIAGEM-AUTOMATICA#]` já foi posta — se sim, pule a postagem.
 
 ## 🛑 REGRA ANTIALUCINAÇÃO (FONTES DE VERDADE)
 
@@ -98,7 +105,7 @@ Para os chamados que passarem no filtro do Passo 2, realize o seguinte processo:
 
 ## Passo 4: Registro do Comentário Interno com Tag de Identificação
 
-Se você encontrar soluções históricas válidas OU precisar adicionar uma análise sobre leis/regras de negócio, **gere o bloco do comentário no arquivo `outputs/<DATA>_comentarios_para_postar.md`** (não poste via MCP — ver workaround no Passo 5).
+Se você encontrar soluções históricas válidas OU precisar adicionar uma análise sobre leis/regras de negócio, **gere o bloco do comentário no arquivo `outputs/<DATA>_comentarios_para_postar.md`** (como trilha de auditoria) e **poste como nota interna via MCP `add_comment` com `internal: true`** (caminho preferido a partir de 2026-06-01 — fix do MCP validado). Antes de cada postagem individual, re-verifique idempotência consultando `get_issue` com `includeComments: true` (proteção contra race condition entre o snapshot do Passo 2 e a postagem efetiva).
 
 O seu comentário interno deve seguir estritamente este formato em Markdown (omita as seções de conteúdo que não se aplicarem, mas mantenha a tag de identificação intacta):
 
@@ -162,7 +169,7 @@ Detalhes operacionais em [`scripts/README.md`](./scripts/README.md).
 1. Liste a fila com a JQL do Passo 1.
 2. Para cada chamado, filtre os já comentados ou em status encerrado (Passo 2).
 3. Analise um por um os restantes (Passo 3), priorizando novos chamados e mudanças relevantes.
-4. Gere o arquivo `outputs/<DATA>_comentarios_para_postar.md` no formato definido (Passo 4).
+4. Gere o arquivo `outputs/<DATA>_comentarios_para_postar.md` (trilha de auditoria) E poste como nota interna via MCP `add_comment` com `internal: true`. Re-verifique a tag via `get_issue` imediatamente antes de cada postagem individual (idempotência just-in-time).
 5. Gere o log diário em `logs/YYYY-MM-DD.md` (Passo 5).
-6. Coordenador roda `node scripts/post_comentarios.js` para postar os comentários como nota interna.
+6. Fallback: se alguma postagem MCP falhar, o coordenador roda `node scripts/post_comentarios.js` para reprocessar pelo arquivo de auditoria (o script é idempotente por chave).
 7. Rode `scripts/registrar_uso_tokens.js` para anexar o consumo do dia (Passo 6).

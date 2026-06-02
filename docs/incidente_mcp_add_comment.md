@@ -1,8 +1,9 @@
 # Incidente — MCP `jira-atendimento__add_comment` não respeita `properties`
 
-**Data:** 2026-05-25
+**Data de abertura:** 2026-05-25
+**Data de resolução:** 2026-06-01
 **Severidade:** Alta (risco de exposição de comentário interno como público)
-**Status:** Aberto — aguardando ajuste no MCP
+**Status:** RESOLVIDO — fix validado em 2026-06-01 (atalho `internal: true` implementado pelo time do MCP).
 
 ## Identificação do componente
 
@@ -119,3 +120,54 @@ mcp__jira-atendimento__add_comment(
 ## Observação adicional (descoberta em paralelo)
 
 Durante os testes, descobrimos uma limitação **separada** do servidor Jira da Betha: o body do comentário não pode conter caracteres Unicode fora do Basic Multilingual Plane (emojis modernos como 🤖, 🚀, ✅) — eles causam HTTP 500 silencioso, possivelmente porque o banco está com encoding restrito (latin1 ou versão antiga). O script `scripts/post_comentarios.js` já sanitiza esses caracteres antes do envio, e o template do CLAUDE.md instrui a triagem a não emitir emojis. Esta limitação é independente do bug do MCP descrito acima.
+
+---
+
+## Resolução em 2026-06-01
+
+O time mantenedor do `@betha/jira-mcp` implementou a **opção 2** sugerida acima — atalho de conveniência `internal: true`. O schema do `add_comment` agora aceita os dois campos:
+
+- `internal: boolean` — atalho que monta internamente o `properties: [{ key: "sd.public.comment", value: { internal: true } }]` antes da chamada à API REST.
+- `properties: [{ key, value }]` — campo livre para qualquer property do Jira (também passou a ser repassado corretamente, conforme schema).
+
+### Teste de aceitação executado
+
+Foi executado no projeto **Triagem da Fila de Arrecadação** (mesmo MCP, ambos os projetos compartilham o componente):
+
+```
+mcp__jira-atendimento__add_comment(
+  issueKey: "BTHSC-318167",
+  comment: "[TESTE-IA-MCP-INTERNO] Teste de validacao do fix do MCP add_comment (atalho `internal: true`). Comentario sera removido em seguida.",
+  explicitUserRequest: true,
+  internal: true
+)
+```
+
+**Resultado:**
+
+- `commentId: 14270695` criado às 16:19 BRT em 2026-06-01.
+- Verificação visual no Jira (coordenador Ari): comentário apareceu com o badge **Interno** no canto direito (autor `MCP Integração Atendimento`).
+- Comentário removido em seguida via `delete_comment` (~16:24 BRT) — sem prejuízo ao cliente.
+
+### Decisão operacional
+
+- A regra do CLAUDE.md que proíbe `add_comment` via MCP **foi relaxada**: a partir de 2026-06-01, é seguro postar comentários internos via MCP usando o atalho `internal: true`.
+- O script `scripts/post_comentarios.js` permanece disponível como caminho alternativo (útil em batch e quando o coordenador prefere revisar o arquivo `outputs/YYYY-MM-DD_comentarios_para_postar.md` antes da postagem). Ambos os fluxos passam a ser válidos.
+- O CLAUDE.md deste projeto foi atualizado nesta mesma data para refletir as duas opções e remover o veto à `add_comment`.
+
+### Incidente de duplicação no mesmo dia (lição aprendida — registrada no projeto Arrecadação)
+
+Imediatamente após a liberação do fix, o projeto Arrecadação sofreu um incidente operacional: duas instâncias da scheduled task rodaram em paralelo e geraram 4 comentários duplicados (depois removidos). A causa raiz foi um race condition entre o snapshot inicial de idempotência (`search_by_text` no Passo 2) e a postagem efetiva no Passo 6 — o snapshot ficou obsoleto durante a fase de análise.
+
+**Mitigações que valem para este projeto também (aplicadas no prompt do scheduled task `triagem-fila-pessoal-diaria`):**
+
+1. **Detecção de execução duplicada antes do Passo 1** — chama `mcp__session_info__list_sessions` e aborta se houver outra sessão da mesma tarefa em andamento ou iniciada nas últimas 2h.
+2. **Re-verificação por chamado no Passo 6 (idempotência just-in-time)** — antes de cada `add_comment` individual, chama `get_issue` com `includeComments: true` e pula se a tag `[#IA-TRIAGEM-AUTOMATICA#]` já estiver presente.
+
+Detalhes do incidente da Arrecadação em `triagem_fila_arrecadacao/logs/2026-06-01.md`.
+
+### Critério de aceitação atendido
+
+- [x] Comentário aparece com a marcação visual de nota interna (badge **Interno**) no Jira.
+- [x] Comentário removido sem disparar notificação inadvertida.
+- [x] Confirmação visual pelo coordenador antes da remoção.
